@@ -34,8 +34,33 @@ def get_model():
     if MODEL is None:
         os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
         import tensorflow as tf
+        import h5py
+        import json
+
         model_path = os.environ.get("MODEL_PATH", "plant_disease.h5")
-        MODEL = tf.keras.models.load_model(model_path, compile=False)
+
+        # Read and fix the model config before loading
+        with h5py.File(model_path, "r") as f:
+            model_config = f.attrs.get("model_config")
+            if model_config:
+                # Fix batch_shape → batch_input_shape for compatibility
+                config_str = model_config
+                if isinstance(config_str, bytes):
+                    config_str = config_str.decode("utf-8")
+                config_str = config_str.replace('"batch_shape"', '"batch_input_shape"')
+
+                # Rebuild model from fixed config
+                fixed_config = json.loads(config_str)
+                MODEL = tf.keras.models.model_from_json(
+                    json.dumps(fixed_config),
+                    custom_objects=None
+                )
+
+                # Load weights manually
+                MODEL.load_weights(model_path)
+            else:
+                MODEL = tf.keras.models.load_model(model_path, compile=False)
+
     return MODEL
 
 def preprocess_image(image_bytes):
